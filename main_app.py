@@ -5,133 +5,178 @@ import plotly.express as px
 from datetime import datetime, timedelta
 
 # Configuración de la página
-st.set_page_config(page_title="Dashboard COVID-19", page_icon="🦠", layout="wide")
+st.set_page_config(page_title="Monitor Meteorológico - Alcaldía de Montería", page_icon="🌤️", layout="wide")
+
+# ==========================================
+# AUTENTICACIÓN Y PANEL IZQUIERDO
+# ==========================================
+st.sidebar.title("EAFIT 202, GomSal, Ciencia de Datos")
+st.sidebar.markdown("---")
+
+# Clave de acceso
+password = st.sidebar.text_input("Ingrese la clave del dashboard (Código 2020)", type="password")
+
+if password != "2020":
+    st.warning("🔒 Por favor, ingrese la clave correcta en el panel izquierdo para acceder al dashboard.")
+    st.stop()
+
+st.sidebar.success("✅ Acceso concedido")
 
 # ==========================================
 # 1. GENERACIÓN DE DATOS SINTÉTICOS
 # ==========================================
 @st.cache_data
 def load_data():
-    """Genera 10 registros sintéticos con 8 columnas de diferentes tipos de datos."""
-    np.random.seed(42) # Para reproducibilidad
+    """Genera 500 registros con 10 columnas sobre datos meteorológicos en Montería y área metropolitana."""
+    np.random.seed(42)
+    n_records = 500
     
-    fechas = [datetime.today() - timedelta(days=i) for i in range(10)]
-    paises = ['Colombia', 'México', 'Perú', 'Argentina', 'Chile', 'Ecuador', 'España', 'Italia', 'Francia', 'Alemania']
-    casos = np.random.randint(1000, 50000, 10)
-    
-    data = {
-        "ID_Registro": range(1, 11),                          # Entero
-        "Fecha": fechas,                                      # Fecha (Datetime)
-        "Pais": paises,                                       # Cadena (String)
-        "Casos_Confirmados": casos,                           # Entero
-        "Recuperados": casos - np.random.randint(100, 900, 10),# Entero (Lógica: Recuperados < Casos)
-        "Tasa_Mortalidad_Porcentaje": np.random.uniform(0.5, 3.5, 10), # Flotante (Float)
-        "Estado_Alerta": np.random.choice(['Alto', 'Medio', 'Bajo'], 10), # Categórico
-        "Con_Restricciones": np.random.choice([True, False], 10) # Booleano
+    # Comunas y barrios de Montería y área metropolitana
+    comunas_barrios = {
+        'Comuna 1': ['El Dorado', 'Vallejo', 'Rancho Grande'],
+        'Comuna 2': ['San José', 'Los Laureles', 'Minuto de Dios'],
+        'Comuna 3': ['Santa Elena', 'Buenavista', 'La Castellana'],
+        'Comuna 4': ['La Granja', 'P5', 'San Martín'],
+        'Comuna 5': ['El Prado', 'Alamedas', 'Los Colores']
     }
-    return pd.DataFrame(data)
+    
+    # Serie de tiempo: 100 días para cada una de las 5 comunas (Total 500 registros)
+    fecha_inicio = datetime.today() - timedelta(days=100)
+    fechas = [fecha_inicio + timedelta(days=i) for i in range(100)] * 5
+    comunas = np.repeat(list(comunas_barrios.keys()), 100)
+    barrios = [np.random.choice(comunas_barrios[c]) for c in comunas]
+    
+    # Simulando variables meteorológicas (Montería suele ser cálida y húmeda)
+    temp = np.random.normal(32, 3.5, n_records) # Temperatura en °C
+    humedad = np.random.normal(75, 12, n_records) # Humedad en %
+    viento = np.random.gamma(2, 6, n_records) # Velocidad del viento km/h
+    precipitacion = np.random.exponential(8, n_records) # Precipitación mm
+    poblacion = np.random.randint(3000, 25000, n_records) # Población afectada
+    
+    # Lógica de Riesgo (Cualitativa) para la alcaldía
+    riesgo = []
+    for t, h, p, v in zip(temp, humedad, precipitacion, viento):
+        if p > 25 or v > 35 or (t > 38 and h < 50):
+            riesgo.append("Alto")
+        elif p > 10 or v > 20 or t > 35:
+            riesgo.append("Medio")
+        else:
+            riesgo.append("Bajo")
+            
+    df = pd.DataFrame({
+        "ID_Registro": range(1, n_records + 1),
+        "Fecha": fechas,
+        "Comuna": comunas,
+        "Barrio": barrios,
+        "Temp_C": temp.round(1),
+        "Humedad_Pct": np.clip(humedad, 0, 100).round(1),
+        "Viento_kmh": viento.round(1),
+        "Precipitacion_mm": precipitacion.round(1),
+        "Poblacion": poblacion,
+        "Nivel_Riesgo": riesgo
+    })
+    return df
 
 df = load_data()
 
 # ==========================================
-# INTERFAZ DE USUARIO Y BARRA LATERAL (SIDEBAR)
+# INTERFAZ Y FILTROS
 # ==========================================
-st.title("🦠 Dashboard Interactivo COVID-19 (Datos Sintéticos)")
-st.markdown("Esta aplicación simula datos epidemiológicos y permite su análisis interactivo.")
+st.title("🌤️ Sistema de Alerta Temprana Meteorológica")
+st.markdown("**Ciudad:** Montería, Córdoba y Área Metropolitana")
 
-st.sidebar.header("⚙️ Panel de Control")
-
-# Selector de variables para graficar
-col_numericas = ['Casos_Confirmados', 'Recuperados', 'Tasa_Mortalidad_Porcentaje']
-col_categoricas = ['Pais', 'Estado_Alerta', 'Con_Restricciones']
-
-var_x = st.sidebar.selectbox("Selecciona la variable para el Eje X", col_categoricas)
-var_y = st.sidebar.selectbox("Selecciona la variable para el Eje Y", col_numericas)
-
-# Slider para umbral dinámico (Filtro)
-umbral_casos = st.sidebar.slider(
-    "Filtro: Casos Confirmados mínimos", 
-    min_value=int(df['Casos_Confirmados'].min()), 
-    max_value=int(df['Casos_Confirmados'].max()), 
-    value=int(df['Casos_Confirmados'].min()),
-    step=1000
+st.sidebar.header("⚙️ Filtros de Análisis")
+comunas_seleccionadas = st.sidebar.multiselect(
+    "Selecciona Comuna(s)", 
+    options=df['Comuna'].unique(),
+    default=df['Comuna'].unique()
 )
 
-# Filtramos el DataFrame según el umbral elegido
-df_filtrado = df[df['Casos_Confirmados'] >= umbral_casos]
+riesgo_seleccionado = st.sidebar.multiselect(
+    "Filtrar por Nivel de Riesgo",
+    options=['Bajo', 'Medio', 'Alto'],
+    default=['Bajo', 'Medio', 'Alto']
+)
+
+# Filtramos la data en función de la selección del usuario
+df_filtrado = df[(df['Comuna'].isin(comunas_seleccionadas)) & (df['Nivel_Riesgo'].isin(riesgo_seleccionado))]
 
 # ==========================================
-# 2. ESQUEMA DE MÉTRICAS
+# 2. ESQUEMA DE MÉTRICAS (Cuantitativas y Cualitativas)
 # ==========================================
-st.header("📊 Resumen Estadístico")
+st.header("📊 Métricas de Control y Riesgo")
 
 if not df_filtrado.empty:
-    col1, col2, col3, col4 = st.columns(4)
+    c1, c2, c3, c4 = st.columns(4)
     
-    # Métricas Cuantitativas
-    col1.metric("Total Casos Confirmados", f"{df_filtrado['Casos_Confirmados'].sum():,}")
-    col2.metric("Tasa Mortalidad Promedio", f"{df_filtrado['Tasa_Mortalidad_Porcentaje'].mean():.2f}%")
+    # Métricas clave
+    c1.metric("Temperatura Promedio", f"{df_filtrado['Temp_C'].mean():.1f} °C")
+    c2.metric("Precipitación Máx.", f"{df_filtrado['Precipitacion_mm'].max():.1f} mm")
     
-    # Métricas Cualitativas
-    alerta_comun = df_filtrado['Estado_Alerta'].mode()[0]
-    paises_restringidos = df_filtrado['Con_Restricciones'].sum()
+    # Población total en riesgo alto (Suma de afectados)
+    pob_riesgo_alto = df_filtrado[df_filtrado['Nivel_Riesgo'] == 'Alto']['Poblacion'].sum()
+    c3.metric("Población Riesgo Alto", f"{pob_riesgo_alto:,}")
     
-    col3.metric("Estado de Alerta más común", alerta_comun)
-    col4.metric("Países con Restricciones", f"{paises_restringidos} de {len(df_filtrado)}")
+    c4.metric("Registros Analizados", len(df_filtrado))
+    
+    with st.expander("Ver Base de Datos (500 Registros, 10 Columnas)"):
+        st.dataframe(df_filtrado, use_container_width=True)
 else:
-    st.warning("El umbral seleccionado es demasiado alto. No hay datos para mostrar las métricas.")
+    st.warning("No hay datos con los filtros seleccionados.")
 
 # ==========================================
-# MOSTRAR DATOS CRUDOS
+# 3. ANÁLISIS GRÁFICO DINÁMICO (PLOTLY)
 # ==========================================
-with st.expander("Ver Base de Datos Simulada (10 Registros, 8 Columnas)"):
-    st.dataframe(df_filtrado, use_container_width=True)
-
-# ==========================================
-# 3. GRÁFICAS DINÁMICAS (PLOTLY)
-# ==========================================
-st.header("📈 Análisis Visual Dinámico")
+st.header("📈 Análisis Visual y Series de Tiempo")
 
 if not df_filtrado.empty:
-    tab1, tab2 = st.tabs(["Gráfico de Barras", "Gráfico de Dispersión"])
+    tab1, tab2, tab3 = st.tabs(["Serie de Tiempo", "Dispersión (Viento vs Temp)", "Impacto Poblacional"])
     
     with tab1:
-        st.subheader(f"{var_y} por {var_x}")
-        # Gráfica de Barras con Plotly Express
+        st.subheader("Evolución Meteorológica en el Tiempo")
+        var_tiempo = st.selectbox("Selecciona la variable a visualizar en el tiempo:", 
+                                  ['Temp_C', 'Humedad_Pct', 'Precipitacion_mm', 'Viento_kmh'])
+        
+        # Agrupamos por fecha y comuna para la gráfica de serie de tiempo
+        df_agrupado = df_filtrado.groupby(['Fecha', 'Comuna'])[var_tiempo].mean().reset_index()
+        
+        fig_time = px.line(
+            df_agrupado, 
+            x="Fecha", 
+            y=var_tiempo, 
+            color="Comuna",
+            title=f"Serie de Tiempo: {var_tiempo} promedio por Comuna",
+            markers=True
+        )
+        st.plotly_chart(fig_time, use_container_width=True)
+        
+    with tab2:
+        st.subheader("Relación de Variables y Nivel de Riesgo")
+        fig_scatter = px.scatter(
+            df_filtrado,
+            x="Temp_C",
+            y="Viento_kmh",
+            color="Nivel_Riesgo",
+            size="Precipitacion_mm",
+            hover_name="Barrio",
+            color_discrete_map={'Alto': 'red', 'Medio': 'orange', 'Bajo': 'green'},
+            title="Temp vs Viento (Tamaño de la burbuja = Nivel de Precipitación)"
+        )
+        # Líneas de umbral dinámicas configurables por el usuario
+        umbral_temp = st.slider("Ajustar Umbral Crítico de Temperatura (°C)", 20.0, 45.0, 35.0)
+        fig_scatter.add_vline(x=umbral_temp, line_dash="dot", line_color="blue", annotation_text="Límite Temp")
+        
+        st.plotly_chart(fig_scatter, use_container_width=True)
+        
+    with tab3:
+        st.subheader("Población Afectada según Nivel de Riesgo")
         fig_bar = px.bar(
-            df_filtrado, 
-            x=var_x, 
-            y=var_y, 
-            color='Estado_Alerta',
+            df_filtrado.groupby('Nivel_Riesgo')['Poblacion'].sum().reset_index(),
+            x='Nivel_Riesgo',
+            y='Poblacion',
+            color='Nivel_Riesgo',
             color_discrete_map={'Alto': 'red', 'Medio': 'orange', 'Bajo': 'green'},
             text_auto='.2s',
-            title=f"Distribución de {var_y.replace('_', ' ')} según {var_x.replace('_', ' ')}"
+            title="Suma total de población por categoría de riesgo"
         )
-        
-        # Añadir línea de umbral promedio interactiva
-        promedio = df_filtrado[var_y].mean()
-        fig_bar.add_hline(y=promedio, line_dash="dot", 
-                          annotation_text=f"Promedio: {promedio:.2f}", 
-                          annotation_position="top right", 
-                          line_color="black")
-        
         st.plotly_chart(fig_bar, use_container_width=True)
-
-    with tab2:
-        st.subheader("Relación Casos vs Recuperados")
-        # Gráfica de Dispersión interactiva
-        fig_scatter = px.scatter(
-            df_filtrado, 
-            x='Casos_Confirmados', 
-            y='Recuperados', 
-            size='Tasa_Mortalidad_Porcentaje', 
-            color='Pais',
-            hover_name='Pais',
-            title="Relación de Casos Confirmados vs Recuperados (Tamaño = Tasa de Mortalidad)"
-        )
-        st.plotly_chart(fig_scatter, use_container_width=True)
-else:
-    st.error("Ajusta el filtro en el panel lateral para poder visualizar los gráficos.")
-
-st.markdown("---")
-st.caption("Desarrollado con Streamlit y Plotly para el análisis de datos interactivos.")
