@@ -23,11 +23,11 @@ if password != "2020":
 st.sidebar.success("✅ Acceso concedido")
 
 # ==========================================
-# 1. GENERACIÓN DE DATOS SINTÉTICOS
+# 1. GENERACIÓN DE DATOS SINTÉTICOS BASADOS EN IDEAM
 # ==========================================
 @st.cache_data
 def load_data():
-    """Genera 500 registros con 10 columnas sobre datos meteorológicos en Montería y área metropolitana."""
+    """Genera 500 registros con 10 columnas sobre datos meteorológicos en Montería y área metropolitana, calibrados con promedios del IDEAM."""
     np.random.seed(42)
     n_records = 500
     
@@ -41,24 +41,34 @@ def load_data():
     }
     
     # Serie de tiempo: 100 días para cada una de las 5 comunas (Total 500 registros)
+    # Retrocedemos 100 días desde la fecha actual (Julio 2026)
     fecha_inicio = datetime.today() - timedelta(days=100)
     fechas = [fecha_inicio + timedelta(days=i) for i in range(100)] * 5
     comunas = np.repeat(list(comunas_barrios.keys()), 100)
     barrios = [np.random.choice(comunas_barrios[c]) for c in comunas]
     
-    # Simulando variables meteorológicas (Montería suele ser cálida y húmeda)
-    temp = np.random.normal(32, 3.5, n_records) # Temperatura en °C
-    humedad = np.random.normal(75, 12, n_records) # Humedad en %
-    viento = np.random.gamma(2, 6, n_records) # Velocidad del viento km/h
-    precipitacion = np.random.exponential(8, n_records) # Precipitación mm
+    # Simulando variables meteorológicas según promedios del IDEAM para Montería (aprox. Julio)
+    # Temperatura Media: ~28.6°C (Distribución normal ajustada para que las máximas lleguen ~37°C y mínimas ~20°C)
+    temp = np.random.normal(28.6, 3.0, n_records) 
+    
+    # Humedad Promedio en Julio: ~78%
+    humedad = np.random.normal(78, 8, n_records) 
+    
+    # Viento: Promedios moderados, simulando ráfagas ocasionales
+    viento = np.random.gamma(2.5, 4.5, n_records) 
+    
+    # Precipitación mensual media en Julio ~146.5mm, lo que da un promedio diario bajo pero con picos en días de tormenta
+    precipitacion = np.random.exponential(4.8, n_records) 
+    
     poblacion = np.random.randint(3000, 25000, n_records) # Población afectada
     
-    # Lógica de Riesgo (Cualitativa) para la alcaldía
+    # Lógica de Riesgo (Cualitativa) para la alcaldía, ajustada a la realidad
     riesgo = []
     for t, h, p, v in zip(temp, humedad, precipitacion, viento):
-        if p > 25 or v > 35 or (t > 38 and h < 50):
+        # Alerta máxima por picos de calor recientes (>37°C) o lluvias intensas (>25mm/día)
+        if p > 25 or v > 30 or (t > 37 and h > 75): 
             riesgo.append("Alto")
-        elif p > 10 or v > 20 or t > 35:
+        elif p > 10 or v > 20 or t > 34:
             riesgo.append("Medio")
         else:
             riesgo.append("Bajo")
@@ -69,7 +79,7 @@ def load_data():
         "Comuna": comunas,
         "Barrio": barrios,
         "Temp_C": temp.round(1),
-        "Humedad_Pct": np.clip(humedad, 0, 100).round(1),
+        "Humedad_Pct": np.clip(humedad, 40, 100).round(1),
         "Viento_kmh": viento.round(1),
         "Precipitacion_mm": precipitacion.round(1),
         "Poblacion": poblacion,
@@ -82,8 +92,9 @@ df = load_data()
 # ==========================================
 # INTERFAZ Y FILTROS
 # ==========================================
-st.title("🌤️ Sistema de Alerta Temprana Meteorológica")
+st.title("🌤️ Sistema de Alerta Temprana Meteorológica (Datos Calibrados - IDEAM)")
 st.markdown("**Ciudad:** Montería, Córdoba y Área Metropolitana")
+st.markdown("*Nota: Los datos sintéticos han sido ajustados tomando como referencia los promedios históricos del IDEAM para el clima cálido y húmedo de la región.*")
 
 st.sidebar.header("⚙️ Filtros de Análisis")
 comunas_seleccionadas = st.sidebar.multiselect(
@@ -111,7 +122,7 @@ if not df_filtrado.empty:
     
     # Métricas clave
     c1.metric("Temperatura Promedio", f"{df_filtrado['Temp_C'].mean():.1f} °C")
-    c2.metric("Precipitación Máx.", f"{df_filtrado['Precipitacion_mm'].max():.1f} mm")
+    c2.metric("Precipitación Máx. Diaria", f"{df_filtrado['Precipitacion_mm'].max():.1f} mm")
     
     # Población total en riesgo alto (Suma de afectados)
     pob_riesgo_alto = df_filtrado[df_filtrado['Nivel_Riesgo'] == 'Alto']['Poblacion'].sum()
@@ -148,6 +159,13 @@ if not df_filtrado.empty:
             title=f"Serie de Tiempo: {var_tiempo} promedio por Comuna",
             markers=True
         )
+        
+        # Añadir línea de promedio histórico si es Temperatura o Humedad
+        if var_tiempo == 'Temp_C':
+             fig_time.add_hline(y=28.6, line_dash="dash", line_color="red", annotation_text="Promedio Histórico IDEAM (Julio): 28.6°C")
+        elif var_tiempo == 'Humedad_Pct':
+             fig_time.add_hline(y=78, line_dash="dash", line_color="blue", annotation_text="Promedio Histórico IDEAM (Julio): 78%")
+             
         st.plotly_chart(fig_time, use_container_width=True)
         
     with tab2:
@@ -163,7 +181,7 @@ if not df_filtrado.empty:
             title="Temp vs Viento (Tamaño de la burbuja = Nivel de Precipitación)"
         )
         # Líneas de umbral dinámicas configurables por el usuario
-        umbral_temp = st.slider("Ajustar Umbral Crítico de Temperatura (°C)", 20.0, 45.0, 35.0)
+        umbral_temp = st.slider("Ajustar Umbral Crítico de Temperatura (°C)", 20.0, 42.0, 37.0)
         fig_scatter.add_vline(x=umbral_temp, line_dash="dot", line_color="blue", annotation_text="Límite Temp")
         
         st.plotly_chart(fig_scatter, use_container_width=True)
